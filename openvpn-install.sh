@@ -384,14 +384,17 @@ crl-verify crl.pem" >> /etc/openvpn/tcp443.conf
 	if [[ "$OS" = 'debian' ]]; then
 		# Little hack to check for systemd
 		if pgrep systemd-journal; then
-			systemctl restart openvpn@server.service
+			systemctl restart openvpn@udp1194.service
+			systemctl restart openvpn@tcp443.service
 		else
 			/etc/init.d/openvpn restart
 		fi
 	else
 		if pgrep systemd-journal; then
-			systemctl restart openvpn@server.service
-			systemctl enable openvpn@server.service
+			systemctl restart openvpn@udp1194.service
+			systemctl enable openvpn@udp1194.service
+			systemctl restart openvpn@tcp443.service
+			systemctl enable openvpn@tcp443.service
 		else
 			service openvpn restart
 			chkconfig openvpn on
