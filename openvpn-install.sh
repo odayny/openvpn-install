@@ -68,7 +68,7 @@ if [[ "$IP" = "" ]]; then
 		IP=$(wget -qO- ipv4.icanhazip.com)
 fi
 
-if [[ -e /etc/openvpn/server.conf ]]; then
+if [[ -e /etc/openvpn/udp1194.conf ] || [ -e /etc/openvpn/tcp443.conf ]]; then
 	while :
 	do
 	clear
@@ -130,25 +130,25 @@ if [[ -e /etc/openvpn/server.conf ]]; then
 			echo ""
 			read -p "Do you really want to remove OpenVPN? [y/n]: " -e -i n REMOVE
 			if [[ "$REMOVE" = 'y' ]]; then
-				PORT=$(grep '^port ' /etc/openvpn/server.conf | cut -d " " -f 2)
 				if pgrep firewalld; then
 					# Using both permanent and not permanent rules to avoid a firewalld reload.
-					firewall-cmd --zone=public --remove-port=$PORT/udp
+					firewall-cmd --zone=public --remove-port=1194/udp
+					firewall-cmd --zone=public --remove-port=443/tcp
 					firewall-cmd --zone=trusted --remove-source=10.8.0.0/24
-					firewall-cmd --permanent --zone=public --remove-port=$PORT/udp
+					firewall-cmd --permanent --zone=public --remove-port=1194/udp
+					firewall-cmd --permanent --zone=public --remove-port=443/tcp
 					firewall-cmd --permanent --zone=trusted --remove-source=10.8.0.0/24
 				fi
 				if iptables -L -n | grep -qE 'REJECT|DROP'; then
-					sed -i "/iptables -I INPUT -p udp --dport $PORT -j ACCEPT/d" $RCLOCAL
+					sed -i "/iptables -I INPUT -p udp --dport 1194 -j ACCEPT/d" $RCLOCAL	
+					sed -i "/iptables -I INPUT -p tcp --dport 443 -j ACCEPT/d" $RCLOCAL
 					sed -i "/iptables -I FORWARD -s 10.8.0.0\/24 -j ACCEPT/d" $RCLOCAL
 					sed -i "/iptables -I FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT/d" $RCLOCAL
 				fi
 				sed -i '/iptables -t nat -A POSTROUTING -s 10.8.0.0\/24 -j SNAT --to /d' $RCLOCAL
 				if hash sestatus 2>/dev/null; then
 					if sestatus | grep "Current mode" | grep -qs "enforcing"; then
-						if [[ "$PORT" != '1194' ]]; then
-							semanage port -d -t openvpn_port_t -p udp $PORT
-						fi
+						semanage port -d -t openvpn_port_t -p tcp 443
 					fi
 				fi
 				if [[ "$OS" = 'debian' ]]; then
@@ -180,9 +180,6 @@ else
 	echo "First I need to know the IPv4 address of the network interface you want OpenVPN"
 	echo "listening to."
 	read -p "IP address: " -e -i $IP IP
-	echo ""
-	echo "What port do you want for OpenVPN?"
-	read -p "Port: " -e -i 1194 PORT
 	echo ""
 	echo "What DNS do you want to use with the VPN?"
 	echo "   1) Current system resolvers"
@@ -232,10 +229,10 @@ else
 	chown nobody:$GROUPNAME /etc/openvpn/crl.pem
 	# Generate key for tls-auth
 	openvpn --genkey --secret /etc/openvpn/ta.key
-	# Generate server.conf
-	echo "port $PORT
+	# Generate udp1194.conf
+	echo "port 1194
 proto udp
-dev tun
+dev tun1194
 sndbuf 0
 rcvbuf 0
 ca ca.crt
@@ -244,35 +241,35 @@ key server.key
 dh dh.pem
 tls-auth ta.key 0
 topology subnet
-server 10.8.0.0 255.255.255.0
-ifconfig-pool-persist ipp.txt" > /etc/openvpn/server.conf
-	echo 'push "redirect-gateway def1 bypass-dhcp"' >> /etc/openvpn/server.conf
+server 10.8.0.0 255.255.255.128
+ifconfig-pool-persist ipp.txt" > /etc/openvpn/udp1194.conf
+	echo 'push "redirect-gateway def1 bypass-dhcp"' >> /etc/openvpn/udp1194.conf
 	# DNS
 	case $DNS in
 		1) 
 		# Obtain the resolvers from resolv.conf and use them for OpenVPN
 		grep -v '#' /etc/resolv.conf | grep 'nameserver' | grep -E -o '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | while read line; do
-			echo "push \"dhcp-option DNS $line\"" >> /etc/openvpn/server.conf
+			echo "push \"dhcp-option DNS $line\"" >> /etc/openvpn/udp1194.conf
 		done
 		;;
 		2) 
-		echo 'push "dhcp-option DNS 8.8.8.8"' >> /etc/openvpn/server.conf
-		echo 'push "dhcp-option DNS 8.8.4.4"' >> /etc/openvpn/server.conf
+		echo 'push "dhcp-option DNS 8.8.8.8"' >> /etc/openvpn/udp1194.conf
+		echo 'push "dhcp-option DNS 8.8.4.4"' >> /etc/openvpn/udp1194.conf
 		;;
 		3)
-		echo 'push "dhcp-option DNS 208.67.222.222"' >> /etc/openvpn/server.conf
-		echo 'push "dhcp-option DNS 208.67.220.220"' >> /etc/openvpn/server.conf
+		echo 'push "dhcp-option DNS 208.67.222.222"' >> /etc/openvpn/udp1194.conf
+		echo 'push "dhcp-option DNS 208.67.220.220"' >> /etc/openvpn/udp1194.conf
 		;;
 		4) 
-		echo 'push "dhcp-option DNS 129.250.35.250"' >> /etc/openvpn/server.conf
-		echo 'push "dhcp-option DNS 129.250.35.251"' >> /etc/openvpn/server.conf
+		echo 'push "dhcp-option DNS 129.250.35.250"' >> /etc/openvpn/udp1194.conf
+		echo 'push "dhcp-option DNS 129.250.35.251"' >> /etc/openvpn/udp1194.conf
 		;;
 		5) 
-		echo 'push "dhcp-option DNS 74.82.42.42"' >> /etc/openvpn/server.conf
+		echo 'push "dhcp-option DNS 74.82.42.42"' >> /etc/openvpn/udp1194.conf
 		;;
 		6) 
-		echo 'push "dhcp-option DNS 64.6.64.6"' >> /etc/openvpn/server.conf
-		echo 'push "dhcp-option DNS 64.6.65.6"' >> /etc/openvpn/server.conf
+		echo 'push "dhcp-option DNS 64.6.64.6"' >> /etc/openvpn/udp1194.conf
+		echo 'push "dhcp-option DNS 64.6.65.6"' >> /etc/openvpn/udp1194.conf
 		;;
 	esac
 	echo "keepalive 10 120
@@ -282,9 +279,63 @@ user nobody
 group $GROUPNAME
 persist-key
 persist-tun
-status openvpn-status.log
+status openvpn-status-1194.log
 verb 3
-crl-verify crl.pem" >> /etc/openvpn/server.conf
+crl-verify crl.pem" >> /etc/openvpn/udp1194.conf
+	
+	# Generate tcp443.conf
+	echo "port 443
+proto tcp-server
+dev tun443
+sndbuf 0
+rcvbuf 0
+ca ca.crt
+cert server.crt
+key server.key
+dh dh.pem
+tls-auth ta.key 0
+topology subnet
+server 10.8.0.128 255.255.255.128
+ifconfig-pool-persist ipp.txt" > /etc/openvpn/tcp443.conf
+	echo 'push "redirect-gateway def1 bypass-dhcp"' >> /etc/openvpn/tcp443.conf
+	# DNS
+	case $DNS in
+		1) 
+		# Obtain the resolvers from resolv.conf and use them for OpenVPN
+		grep -v '#' /etc/resolv.conf | grep 'nameserver' | grep -E -o '[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}' | while read line; do
+			echo "push \"dhcp-option DNS $line\"" >> /etc/openvpn/tcp443.conf
+		done
+		;;
+		2) 
+		echo 'push "dhcp-option DNS 8.8.8.8"' >> /etc/openvpn/tcp443.conf
+		echo 'push "dhcp-option DNS 8.8.4.4"' >> /etc/openvpn/tcp443.conf
+		;;
+		3)
+		echo 'push "dhcp-option DNS 208.67.222.222"' >> /etc/openvpn/tcp443.conf
+		echo 'push "dhcp-option DNS 208.67.220.220"' >> /etc/openvpn/tcp443.conf
+		;;
+		4) 
+		echo 'push "dhcp-option DNS 129.250.35.250"' >> /etc/openvpn/tcp443.conf
+		echo 'push "dhcp-option DNS 129.250.35.251"' >> /etc/openvpn/tcp443.conf
+		;;
+		5) 
+		echo 'push "dhcp-option DNS 74.82.42.42"' >> /etc/openvpn/tcp443.conf
+		;;
+		6) 
+		echo 'push "dhcp-option DNS 64.6.64.6"' >> /etc/openvpn/tcp443.conf
+		echo 'push "dhcp-option DNS 64.6.65.6"' >> /etc/openvpn/tcp443.conf
+		;;
+	esac
+	echo "keepalive 10 120
+cipher AES-128-CBC
+comp-lzo
+user nobody
+group $GROUPNAME
+persist-key
+persist-tun
+status openvpn-status-443.log
+verb 3
+crl-verify crl.pem" >> /etc/openvpn/tcp443.conf
 	# Enable net.ipv4.ip_forward for the system
 	sed -i '/\<net.ipv4.ip_forward\>/c\net.ipv4.ip_forward=1' /etc/sysctl.conf
 	if ! grep -q "\<net.ipv4.ip_forward\>" /etc/sysctl.conf; then
@@ -299,32 +350,34 @@ crl-verify crl.pem" >> /etc/openvpn/server.conf
 		# We don't use --add-service=openvpn because that would only work with
 		# the default port. Using both permanent and not permanent rules to
 		# avoid a firewalld reload.
-		firewall-cmd --zone=public --add-port=$PORT/udp
+		firewall-cmd --zone=public --add-port=1194/udp
+		firewall-cmd --zone=public --add-port=443/tcp
 		firewall-cmd --zone=trusted --add-source=10.8.0.0/24
-		firewall-cmd --permanent --zone=public --add-port=$PORT/udp
+		firewall-cmd --permanent --zone=public --add-port=1194/udp
+		firewall-cmd --permanent --zone=public --add-port=443/tcp
 		firewall-cmd --permanent --zone=trusted --add-source=10.8.0.0/24
 	fi
 	if iptables -L -n | grep -qE 'REJECT|DROP'; then
 		# If iptables has at least one REJECT rule, we asume this is needed.
 		# Not the best approach but I can't think of other and this shouldn't
 		# cause problems.
-		iptables -I INPUT -p udp --dport $PORT -j ACCEPT
+		iptables -I INPUT -p udp --dport 1194 -j ACCEPT
+		iptables -I INPUT -p tcp --dport 443 -j ACCEPT
 		iptables -I FORWARD -s 10.8.0.0/24 -j ACCEPT
 		iptables -I FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT
-		sed -i "1 a\iptables -I INPUT -p udp --dport $PORT -j ACCEPT" $RCLOCAL
+		sed -i "1 a\iptables -I INPUT -p udp --dport 1194 -j ACCEPT" $RCLOCAL
+		sed -i "1 a\iptables -I INPUT -p tcp --dport 443 -j ACCEPT" $RCLOCAL
 		sed -i "1 a\iptables -I FORWARD -s 10.8.0.0/24 -j ACCEPT" $RCLOCAL
 		sed -i "1 a\iptables -I FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT" $RCLOCAL
 	fi
 	# If SELinux is enabled and a custom port was selected, we need this
 	if hash sestatus 2>/dev/null; then
 		if sestatus | grep "Current mode" | grep -qs "enforcing"; then
-			if [[ "$PORT" != '1194' ]]; then
-				# semanage isn't available in CentOS 6 by default
-				if ! hash semanage 2>/dev/null; then
-					yum install policycoreutils-python -y
-				fi
-				semanage port -a -t openvpn_port_t -p udp $PORT
+			# semanage isn't available in CentOS 6 by default
+			if ! hash semanage 2>/dev/null; then
+				yum install policycoreutils-python -y
 			fi
+			semanage port -a -t openvpn_port_t -p tcp 443
 		fi
 	fi
 	# And finally, restart OpenVPN
@@ -363,7 +416,12 @@ dev tun
 proto udp
 sndbuf 0
 rcvbuf 0
-remote $IP $PORT
+<connection>
+remote $IP 1194 udp
+</connection>
+<connection>
+remote $IP 443 tcp-client
+</connection>
 resolv-retry infinite
 nobind
 persist-key
