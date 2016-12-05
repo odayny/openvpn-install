@@ -68,7 +68,7 @@ if [[ "$IP" = "" ]]; then
 		IP=$(wget -qO- ipv4.icanhazip.com)
 fi
 
-if [[ -e /etc/openvpn/udp1194.conf ] || [ -e /etc/openvpn/tcp443.conf ]]; then
+if [[ -e /etc/openvpn/udp1194.conf ]] || [[ -e /etc/openvpn/tcp443.conf ]]; then
 	while :
 	do
 	clear
